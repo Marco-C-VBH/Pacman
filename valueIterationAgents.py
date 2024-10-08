@@ -62,6 +62,15 @@ class ValueIterationAgent(ValueEstimationAgent):
     def runValueIteration(self):
         # Write value iteration code here
         "*** YOUR CODE HERE ***"
+        num_iterations = self.iterations
+        for i in range(num_iterations):
+            value_copy = self.values.copy()
+            for state in self.mdp.getStates():
+                action = self.getAction(state)
+                if action is not None:
+                    q_value = self.getQValue(state, action)
+                    value_copy[state] = q_value
+            self.values = value_copy.copy()
 
 
     def getValue(self, state):
@@ -77,7 +86,13 @@ class ValueIterationAgent(ValueEstimationAgent):
           value function stored in self.values.
         """
         "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        # util.raiseNotDefined()
+        q_value = 0
+        for trans_state, prob in self.mdp.getTransitionStatesAndProbs(state, action):
+            trans_reward = self.mdp.getReward(state, action, trans_state)
+            state_reward = self.getValue(trans_state)
+            q_value += prob * (trans_reward + self.discount * state_reward)
+        return q_value
 
     def computeActionFromValues(self, state):
         """
@@ -89,7 +104,14 @@ class ValueIterationAgent(ValueEstimationAgent):
           terminal state, you should return None.
         """
         "*** YOUR CODE HERE ***"
-        util.raiseNotDefined()
+        # util.raiseNotDefined()
+        possible_actions = self.mdp.getPossibleActions(state)
+        if len(possible_actions) == 0:
+            return None
+        counter = util.Counter()
+        for action in possible_actions:
+            counter[action] = self.getQValue(state, action)
+        return counter.argMax()
 
     def getPolicy(self, state):
         return self.computeActionFromValues(state)
@@ -130,6 +152,14 @@ class AsynchronousValueIterationAgent(ValueIterationAgent):
 
     def runValueIteration(self):
         "*** YOUR CODE HERE ***"
+        num_iterations = self.iterations
+        states = self.mdp.getStates()
+        for i in range(num_iterations):
+            state = states[i % len(states)]
+            if not self.mdp.isTerminal(state):
+                action = self.computeActionFromValues(state)
+                q_value = self.getQValue(state, action)
+                self.values[state] = q_value
 
 class PrioritizedSweepingValueIterationAgent(AsynchronousValueIterationAgent):
     """
@@ -150,4 +180,34 @@ class PrioritizedSweepingValueIterationAgent(AsynchronousValueIterationAgent):
 
     def runValueIteration(self):
         "*** YOUR CODE HERE ***"
+        states = self.mdp.getStates()
+        # find all predecessors
+        # set is used here to avoid redundancy
+        predecessors = {state: set() for state in states}
+        for state in states:
+            for action in self.mdp.getPossibleActions(state):
+                for next_state, prob in self.mdp.getTransitionStatesAndProbs(state, action):
+                    if prob > 0:
+                        predecessors[next_state].add(state)
+
+        pq = util.PriorityQueue()
+
+        for state in states:
+            if not self.mdp.isTerminal(state):
+                max_q_value = max(self.getQValue(state, action) for action in self.mdp.getPossibleActions(state))
+                diff = abs(max_q_value - self.values[state])
+                pq.push(state, -diff)
+
+        for i in range(self.iterations):
+            if pq.isEmpty():
+                break
+            pop_state = pq.pop()
+            if not self.mdp.isTerminal(pop_state):
+                max_q_value = max(self.getQValue(pop_state, action) for action in self.mdp.getPossibleActions(pop_state))
+                self.values[pop_state] = max_q_value
+                for predecessor in predecessors[pop_state]:
+                    pred_max_q_value = max(self.getQValue(predecessor, action) for action in self.mdp.getPossibleActions(predecessor))
+                    pred_diff = abs(pred_max_q_value - self.values[predecessor])
+                    if pred_diff > self.theta:
+                        pq.update(predecessor, -pred_diff)
 
